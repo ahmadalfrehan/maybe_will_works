@@ -1,115 +1,286 @@
-import './style.css'
-import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import * as dat from 'lil-gui'
-import CANNON, { ConeTwistConstraint } from 'cannon'
-import { Scene } from 'three'
-let force
-//var orbit = new THREE.OrbitControls( camera, renderer.domElement )
+import './style.css';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import * as dat from 'dat.gui';
+import CANNON from 'cannon';
+import Moon from './Moon'
+import Earth from './earth';
+import Physics from './physics/physics';
+const gui = new dat.GUI();
+const world = new CANNON.World();
+world.gravity.set(0, 0, 0);
+const canvas = document.querySelector('canvas.webgl');
+const scene = new THREE.Scene();
+var moonmass = {
+    mass: 1200
+}
+let moonpos = {
+    x: 0,
+    y: 15000,
+    dx: 0,
+    dy: 0
+}
+var moonn = new Moon(moonmass.mass, moonpos, 2, '#777777', 0.3, 0.4)
+gui.add(moonmass, 'mass', 1, 2000).name('mass for moon');
+const moon = new THREE.Mesh(
+    new THREE.SphereGeometry(2, 32, 32),
+    new THREE.MeshStandardMaterial({
+        metalness: moonn.roughness,
+        roughness: moonn.roughness,
+        color: moonn.color
+    })
+);
 
-  //Camera, scene, and renderer
-  var scene = new THREE.Scene();
-  var camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 1, 2000);
-  scene.add(camera);
-  camera.position.set(0,35,70);
+let starting_heights = {
+    h: 15000
+}
 
-  var renderer = new THREE.WebGLRenderer({antialias: true});
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  document.body.appendChild(renderer.domElement);
+let working = {
+    work: false
+}
 
-  //Orbit Controls
-  //var orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
+let refreshing = {
+    refresh: false
+}
 
-  //Lights
-  var ambientLight = new THREE.AmbientLight(0xf1f1f1);
-  scene.add(ambientLight);
+moon.castShadow = true;
+scene.add(moon);
+moon.position.set(0, 0, 0)
+gui.add(starting_heights, 'h', -10000000, 10000000, 1000).listen().onChange(function (newValue) {
+    starting_heights.h = newValue
+});
 
-  var spotLight = new THREE.DirectionalLight(0xffffff);
-  spotLight.position.set(50,50,50);
-  scene.add(spotLight);
+moonpos.y = starting_heights.h
+let xchange = gui.add(moonpos, 'x').min(-100000000).max(100000000).step(1000).listen()
+xchange.onChange(function (newValue) {
+    moonpos.x = newValue
+})
+let ychange = gui.add(moonpos, 'y').min(-100000000).max(100000000).step(1000).listen()
+ychange.onChange(function (newValue) {
+    moonpos.y = newValue
+})
+let start =
+    gui.add(working, 'work')
+        .name('start')
+        .listen();
+start.onChange(
+    function (newValue) {
+        working.work = newValue
+    });
 
-  //Objects (We build a mesh using a geometry and a material)
+let refresh_page =
+    gui.add(refreshing, 'refresh')
+        .name('refresh page')
+        .listen();
+refresh_page.onChange(
+    function (newValue) {
+        refreshing.refresh = newValue
+    });
 
-  //Earth
-  var earthGeometry = new THREE.SphereGeometry(10, 50, 50);
-  var earthMaterial = new THREE.MeshPhongMaterial({
-    map: new THREE.ImageUtils.loadTexture("/images/earth_3.jpg"),
-    color: 0xf2f2f2,
-    specular: 0xbbbbbb,
-    shininess: 2
-  });
-  var earth = new THREE.Mesh(earthGeometry, earthMaterial);
-  scene.add(earth);
-
-  //Clouds
-  var cloudGeometry = new THREE.SphereGeometry(10.3,  50, 50);
-  var cloudMaterial = new THREE.MeshPhongMaterial({
-    map: new THREE.ImageUtils.loadTexture("/images/clouds_2.jpg"),
-    transparent: true,
-    opacity: 0.1
-  });
-  var clouds = new THREE.Mesh(cloudGeometry, cloudMaterial);
-  scene.add(clouds);
-
-  //Stars
-  var starGeometry = new THREE.SphereGeometry(1000, 50, 50);
-  var starMaterial = new THREE.MeshPhongMaterial({
-    map: new THREE.ImageUtils.loadTexture("/images/galaxy_starfield.png"),
-    side: THREE.DoubleSide,
-    shininess: 0
-  });
-  var starField = new THREE.Mesh(starGeometry, starMaterial);
-  scene.add(starField);
-
-  //Moon 
-  var moonGeometry = new THREE.SphereGeometry(3.5, 50,50);
-  var moonMaterial = new THREE.MeshPhongMaterial({
-    map: THREE.ImageUtils.loadTexture("/images/moon_texture.jpg")
-  });
-  var moon = new THREE.Mesh(moonGeometry, moonMaterial);
-  moon.position.set(35,0,0);
-  scene.add(moon);
-
-  //Camera vector
-  var earthVec = new THREE.Vector3(0,0,0);
-
-  var r = 35;
-  var theta = 0;
-  var dTheta = 2 * Math.PI / 1000;
-
-  var dx = .01;
-  var dy = -.01;
-  var dz = -.05;
+const earthmass = {
+    massnum: 5.976,
+    digits: 24,
+    mass: 0
+}
 
 
+var earthRadius = 6371000
 
-  //Render loop
-  var render = function() {
-    earth.rotation.y += .0009;
-    clouds.rotation.y += .00005;
+gui.add(earthmass, 'digits', 1, 27).name('mass digits for earth').onChange(function (newValue) {
+    earthmass.digits = newValue
+});
+gui.add(earthmass, 'massnum', 1, 10).name('mass for earth').onChange(function (newValue) {
+    earthmass.massnum = newValue
+})
+earthmass.mass = earthmass.massnum * Math.pow(10, earthmass.digits)
 
-    //Moon orbit        
-    theta += dTheta;
-    moon.position.x = r * Math.cos(theta);
-    moon.position.z = r * Math.sin(theta);
+var earthObj = new Earth(earthmass, 0, earthRadius, '#770077', 0.3, 0.4)
+const earth = new THREE.Mesh(
+    new THREE.SphereGeometry(6.371, 32, 32),
+    new THREE.MeshStandardMaterial({
+        metalness: earthObj.metalness,
+        roughness: earthObj.roughness,
+        color: earthObj.color
+    })
+);
+earth.castShadow = true;
+earth.position.set(0, 0, 0)
+const x1 = earth.position.x
+const y1 = earth.position.y
+scene.add(earth);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+scene.add(ambientLight);
 
-    //Flyby
-    if (camera.position.z < 0) {
-      dx *= -1;
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.2);
+directionalLight.castShadow = true;
+directionalLight.shadow.mapSize.set(1024, 1024);
+directionalLight.shadow.camera.far = 15;
+directionalLight.shadow.camera.left = -7;
+directionalLight.shadow.camera.top = 7;
+directionalLight.shadow.camera.right = 7;
+directionalLight.shadow.camera.bottom = -7;
+directionalLight.position.set(5, 5, 5);
+scene.add(directionalLight);
+const sizes = {
+    width: window.innerWidth,
+    height: window.innerHeight
+};
+
+window.addEventListener('resize', () => {
+    sizes.width = window.innerWidth;
+    sizes.height = window.innerHeight;
+    camera.aspect = sizes.width / sizes.height;
+    camera.updateProjectionMatrix();
+    renderer.setSize(sizes.width, sizes.height);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+});
+const aspect_ratio = sizes.width / sizes.height
+const camera = new THREE.OrthographicCamera(-1 * aspect_ratio, 1 * aspect_ratio, 1, -1, -1000, 1000);
+//const camera = new THREE.PerspectiveCamera(150, sizes.width / sizes.height, 0.1, 100);
+
+camera.position.set(-3, 3, 15);
+camera.zoom = 0.05
+camera.updateProjectionMatrix()
+
+scene.add(camera);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+
+var ph = new Physics()
+
+const renderer = new THREE.WebGLRenderer({
+    canvas: canvas
+});
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setSize(sizes.width, sizes.height);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+//covert to meters
+moonpos.x *= 1000
+moonpos.y *= 1000
+const dt = 20
+//getting starting velocity
+const G = 6.67 * Math.pow(10, -11)
+const s = ph.starting_velocity(moonpos.x, moonpos.y,x1,y1,G,earthmass.mass)
+const V = {
+    v0: s[0]
+}
+let VX = s[1]
+let VY = s[2]
+gui.add(V, 'v0', -5000000, 5000000).name('v0').listen().setValue(function (newValue) {
+    V.v0 = newValue
+})
+function Points(x, y) {
+    const vertices = [];
+    for (let i = 0; i < 1; i++) {
+
+        const z = THREE.MathUtils.randFloatSpread(2);
+        vertices.push(x, y, 0);
     }
-    camera.position.x += dx;
-    camera.position.y += dy;
-    camera.position.z += dz;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    const material = new THREE.PointsMaterial({ size: 2, color: 0x888888 });
+    const points = new THREE.Points(geometry, material);
+    scene.add(points);
+}
 
-    camera.lookAt(earthVec);
+var e = 0
+var q = 0
+//console.log('moon pos'+y)
 
-    //Flyby reset
-    if (camera.position.z < -100) {
-      camera.position.set(0,35,70);
+
+let gui_bool = true
+
+const tick = () => {
+    earthmass.mass = earthmass.massnum * Math.pow(10, earthmass.digits)
+
+    if (working.work === true) {
+
+        if (refreshing.refresh === true) {
+            window.location.reload(true);
+            console.log('this is refresh ' + refreshing.refresh)
+        }
+        else {
+            console.log('this is refresh ' + refreshing.refresh)
+        }
+
+        console.log("current X= " + moonpos.x)
+        console.log("current Y= " + moonpos.y)
+        //gravity force results
+        e = moon.x
+        q = moon.y
+
+        let gravity_force_all = ph.gravity_force(moonpos.x, moonpos.y,x1,y1,earthmass.mass,moonmass.mass,G)
+        let Fg = gravity_force_all[0]
+        let Fx = gravity_force_all[1]
+        let Fy = gravity_force_all[2]
+
+
+
+        //acceleration results
+        let acceleration_all =ph.acceleration(Fg, Fx, Fy,moonmass.mass)
+        let a = acceleration_all[0]
+        let ax = acceleration_all[1]
+        let ay = acceleration_all[2]
+
+
+        //first velocity after starting velocity
+        let velocity_all =ph.velocity(V.v0, VX, VY, a, ax, ay,dt)
+        V.v0 = velocity_all[0]
+        let v = {
+            v_now: V.v0
+        }
+
+        if (gui_bool) {
+            gui.add(v, 'v_now', -1500000, 1500000, 1000).name('the current velocity').onChange(function (newValue) {
+                v.v_now = newValue
+
+
+            })
+            gui_bool = false
+        }
+
+
+        console.log('this is new v : ' + V.v0)
+        VX = velocity_all[1]
+        VY = velocity_all[2]
+
+
+        //changing position
+        let position_all =ph.position(moonpos.x, moonpos.y, VX, VY,dt)
+        moonpos.x = position_all[0]
+        moonpos.y = position_all[1]
+        //printing
+        console.log('Fg=  ' + Fg)
+        console.log('a=  ' + a)
+        console.log('V=  ' + V.v0)
+        console.log('Fx=  ' + Fx)
+        console.log('ax=  ' + ax)
+        console.log('Vx=  ' + VX)
+        console.log('Fy=  ' + Fy)
+        console.log('ay=  ' + ay)
+        console.log('Vy=  ' + VY)
+        console.log('X=  ' + moonpos.x)
+        console.log('Y=  ' + moonpos.y)
+        moon.position.x = (moonpos.x / 1000000)
+        moon.position.y = (moonpos.y / 1000000)
+        console.log('this is moon position x ' + moon.position.x + '  this is moon position y ' + moon.position.y)
+        let r = Points(moon.position.x, moon.position.y)
+        controls.update();
+        renderer.render(scene, camera);
+        window.requestAnimationFrame(tick);
+    } else {
+        if (refreshing.refresh === true) {
+            window.location.reload(true);
+            console.log('this is refresh ' + refreshing.refresh)
+        }
+        else {
+            console.log('this is refresh ' + refreshing.refresh)
+        }
+        controls.update();
+        renderer.render(scene, camera);
+        console.log('it is false')
+        window.requestAnimationFrame(tick);
     }
-
-    camera.lookAt(earthVec);
-    renderer.render(scene, camera);
-    requestAnimationFrame(render);
-  };
-  render();
+};
+tick();
