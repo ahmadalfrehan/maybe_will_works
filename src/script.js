@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as dat from 'dat.gui';
 import CANNON from 'cannon';
+import { AnimationAction, log, SphereGeometry } from 'three';
 import Moon from './Moon'
 import Earth from './earth';
 import Physics from './physics/physics';
@@ -17,7 +18,6 @@ const scene = new THREE.Scene();
 //var moonn = new Moon(moonmass.mass, moonpos, 2, '#777777', 0.3, 0.4)
 var gUi = new Gui()
 //gUi.GuiForMoonMass()
-//gui.add(moonmass, 'mass', 1, 2000).name('mass for moon');
 //var draw = new Draw()
 let moonpos = {
     x: 0,
@@ -28,6 +28,8 @@ let moonpos = {
 let moonmass = {
     mass: 1200
 }
+
+gui.add(moonmass, 'mass', 1, 2000).name('mass for moon');
 //const scene = new THREE.Scene();
 var moonn = new Moon(moonmass.mass, moonpos, 2, '#777777', 0.3, 0.4)
 const moon = new THREE.Mesh(
@@ -41,11 +43,11 @@ const moon = new THREE.Mesh(
 moon.castShadow = true;
 moon.position.set(0, 0, 0)
 scene.add(moon);
-//var moon = draw.drawMoon()
-//var moonmass = draw.moonMas()
-//var moonpos = draw.moonPos()
-let starting_heights = {
-    h: 15000
+let starting_height = {
+    h: 900000
+}
+let raduis = {
+    r: 6371000
 }
 let working = {
     work: false
@@ -54,11 +56,21 @@ let refreshing = {
     refresh: false
 }
 
-gui.add(starting_heights, 'h', -10000000, 10000000, 1000).listen().onChange(function (newValue) {
-    starting_heights.h = newValue
+gui.add(starting_height, 'h', -10000000, 10000000, 1000).listen().onChange(function (newValue) {
+    starting_height.h = newValue
 });
 
-moonpos.y = starting_heights.h
+moonpos.y = starting_height.h
+let first_height = gui.add(starting_height, 'h', -1000000000, 1000000000, 10000).name('height').listen().onChange(function (newValue) {
+    first_height.h = newValue
+    moonpos.y = raduis.r + newValue
+})
+
+let planet_raduis = gui.add(raduis, 'r', -10000000, 10000000, 100).listen().onChange(function (newValue) {
+    planet_raduis.r = newValue
+    moonpos.y = newValue + starting_height.h
+})
+
 let xchange = gui.add(moonpos, 'x').min(-100000000).max(100000000).step(1000).listen()
 xchange.onChange(function (newValue) {
     moonpos.x = newValue
@@ -163,14 +175,35 @@ moonpos.y *= 1000
 const dt = 20
 //getting starting velocity
 const G = 6.67 * Math.pow(10, -11)
+let current_theta = Math.PI
 const s = ph.starting_velocity(moonpos.x, moonpos.y, x1, y1, G, earthmass.mass)
 const V = {
     v0: s[0]
 }
 let VX = s[1]
 let VY = s[2]
-gui.add(V, 'v0', -5000000, 5000000).name('v0').listen().setValue(function (newValue) {
-    V.v0 = newValue
+let var_V = {
+    v: V.v0
+}
+let orientation = {
+    against_clock: true
+}
+let change_orientation = gui.add(orientation, 'against_clock').listen().onChange(function (newValue) {
+    if (orientation.against_clock == true) {
+        VX = var_V.v * Math.cos(current_theta)
+        VY = var_V.v * Math.sin(current_theta)
+    }
+    else {
+        VX = var_V.v * Math.cos(current_theta - Math.PI)
+        VY = var_V.v * Math.sin(current_theta - Math.PI)
+    }
+})
+let vchange = gui.add(var_V, 'v').min(-50000).max(50000).step(10).name('v').listen()
+vchange.onChange(function (newValue) {
+    let temp = var_V.v
+    var_V.v = newValue
+    VX = var_V.v * Math.cos(current_theta)
+    VY = var_V.v * Math.sin(current_theta)
 })
 function Points(x, y) {
     const vertices = [];
@@ -188,7 +221,7 @@ var e = 0
 var q = 0
 let gui_bool = true
 const tick = () => {
-    earthmass.mass = earthmass.massnum * Math.pow(10, earthmass.digits)
+   // earthmass.mass = earthmass.massnum * Math.pow(10, earthmass.digits)
     if (working.work === true) {
         if (refreshing.refresh === true) {
             window.location.reload(true);
@@ -197,52 +230,26 @@ const tick = () => {
         else {
             console.log('this is refresh ' + refreshing.refresh)
         }
-        //gravity force results
         e = moon.x
         q = moon.y
-
         let gravity_force_all = ph.gravity_force(moonpos.x, moonpos.y, x1, y1, earthmass.mass, moonmass.mass, G)
         let Fg = gravity_force_all[0]
         let Fx = gravity_force_all[1]
         let Fy = gravity_force_all[2]
-        //acceleration results
+        current_theta = gravity_force_all[3]
         let acceleration_all = ph.acceleration(Fg, Fx, Fy, moonmass.mass)
         let a = acceleration_all[0]
         let ax = acceleration_all[1]
         let ay = acceleration_all[2]
         let velocity_all = ph.velocity(V.v0, VX, VY, a, ax, ay, dt)
-        V.v0 = velocity_all[0]
-        let v = {
-            v_now: V.v0
-        }
-        if (gui_bool) {
-            gui.add(v, 'v_now', -1500000, 1500000, 1000).name('the current velocity').onChange(function (newValue) {
-                v.v_now = newValue
-            })
-            gui_bool = false
-        }
-        console.log('this is new v : ' + V.v0)
+        var_V.v = velocity_all[0]
         VX = velocity_all[1]
         VY = velocity_all[2]
-        //changing position
         let position_all = ph.position(moonpos.x, moonpos.y, VX, VY, dt)
         moonpos.x = position_all[0]
         moonpos.y = position_all[1]
-        //printing
-        /*
-        console.log('Fg=  ' + Fg)
-        console.log('a=  ' + a)
-        console.log('V=  ' + V.v0)
-        console.log('Fx=  ' + Fx)
-        console.log('ax=  ' + ax)
-        console.log('Vx=  ' + VX)
-        console.log('Fy=  ' + Fy)
-        console.log('ay=  ' + ay)
-        console.log('Vy=  ' + VY)
-        console.log('X=  ' + moonpos.x)
-        console.log('Y=  ' + moonpos.y)*/
-        moon.position.x = (moonpos.x / 1000000)
-        moon.position.y = (moonpos.y / 1000000)
+        moon.position.x = (moonpos.x / 2000000)
+        moon.position.y = (moonpos.y / 2000000)
         console.log('this is moon position x ' + moon.position.x + '  this is moon position y ' + moon.position.y)
         let r = Points(moon.position.x, moon.position.y)
         controls.update();

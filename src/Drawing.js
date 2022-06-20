@@ -38,7 +38,7 @@ export default class Draw {
         const scene = new THREE.Scene();
         var earthObj = new Earth(earthmass, 0, earthRadius, '#770077', 0.3, 0.4)
         const earth = new THREE.Mesh(
-            new THREE.SphereGeometry(6.371, 32, 32),
+            new THREE.SphereGeometry(6371000/1000000, 32, 32),
             new THREE.MeshStandardMaterial({
                 metalness: earthObj.metalness,
                 roughness: earthObj.roughness,
